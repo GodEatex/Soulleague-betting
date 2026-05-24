@@ -3,8 +3,8 @@ const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, Butt
 const { addBalance, getBalance } = require('../utils/economy');
 const { getConfig } = require('../utils/config');
 
-const cooldowns = new Map();
-const COOLDOWN_MS = 2 * 60 * 60 * 1000;
+const COOLDOWN_MS = 2 * 60 * 60 * 1000; // 2 hours exactly
+const storage = require('../utils/storage');
 
 function randomInt(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -60,13 +60,14 @@ module.exports = {
     const emoji = cfg.currencyEmoji || '🪙';
     const name = cfg.currencyName || 'Coins';
 
-    const lastUsed = cooldowns.get(guildId + '_' + userId);
+    const cooldowns = storage.read('work_cooldowns');
+    const lastUsed = cooldowns[guildId + '_' + userId];
     if (lastUsed) {
       const remaining = COOLDOWN_MS - (Date.now() - lastUsed);
       if (remaining > 0) {
-        const mins = Math.floor(remaining / 60000);
-        const secs = Math.ceil((remaining % 60000) / 1000);
-        const timeStr = mins > 0 ? mins + 'h ' + Math.floor((remaining % 3600000) / 60000) + 'm' : secs + 's';
+        const hours = Math.floor(remaining / 3600000);
+        const mins = Math.floor((remaining % 3600000) / 60000);
+        const timeStr = hours > 0 ? hours + 'h ' + mins + 'm' : mins + 'm';
         return interaction.reply({ content: '⏱️ You already worked! Try again in **' + timeStr + '**.', ephemeral: true });
       }
     }
@@ -91,7 +92,8 @@ module.exports = {
     );
 
     await interaction.reply({ embeds: [embed], components: [row] });
-    cooldowns.set(guildId + '_' + userId, Date.now());
+    cooldowns[guildId + '_' + userId] = Date.now();
+    await storage.write('work_cooldowns', cooldowns);
 
     const msg = await interaction.fetchReply();
 
