@@ -1,10 +1,9 @@
 // src/commands/forcecreate.js
 const {
   SlashCommandBuilder, PermissionFlagsBits,
-  ActionRowBuilder, ButtonBuilder, ButtonStyle,
 } = require('discord.js');
 const { getConfig } = require('../utils/config');
-const { createMatch, lockMatch } = require('../utils/matchManager');
+const { createMatch, activateMatch, lockMatch, saveMatch } = require('../utils/matchManager');
 const { buildMatchEmbed, buildBettingButtons } = require('../utils/betUI');
 
 // Set ALLOWED_ROLE_IDS in Railway Variables (comma-separated role IDs)
@@ -25,10 +24,12 @@ module.exports = {
 
   async execute(interaction) {
     const guildId = interaction.guildId;
-    const cfg = getConfig(guildId);
     const member = interaction.member;
 
-    const isServerOwner = interaction.guild.ownerId === interaction.user.id;
+    // Fetch guild if not cached
+    const guild = interaction.guild ?? await interaction.client.guilds.fetch(guildId);
+
+    const isServerOwner = guild.ownerId === interaction.user.id;
     const isAdmin = member.permissions.has(PermissionFlagsBits.Administrator);
     const hasAllowedRole = ALLOWED_ROLE_IDS.length > 0 && ALLOWED_ROLE_IDS.some(id => member.roles.cache.has(id));
 
@@ -48,9 +49,14 @@ module.exports = {
 
     await interaction.deferReply();
 
-    const match = await createMatch(guildId, teamA, teamB, interaction.user.id);
-    const embed = buildMatchEmbed(match, guildId);
-    const row = buildBettingButtons(match);
+    // createMatch returns { match, sessionId }
+    const { match, sessionId } = createMatch(guildId, { teamA, teamB });
+
+    // Immediately activate (open) the match
+    const openMatch = await activateMatch(guildId, sessionId);
+
+    const embed = buildMatchEmbed(openMatch, guildId);
+    const row = buildBettingButtons(openMatch);
 
     const msg = await interaction.editReply({
       content: `🎰 Betting is now **OPEN** for **${teamA}** vs **${teamB}**! You have 2 minutes to place your bets.`,
@@ -58,13 +64,14 @@ module.exports = {
       components: [row],
     });
 
-    match.betMessageId = msg.id;
-    match.betChannelId = msg.channelId;
+    openMatch.betMessageId = msg.id;
+    openMatch.betChannelId = msg.channelId;
+    await saveMatch(guildId, openMatch);
 
     // Auto-lock after 2 minutes
     setTimeout(async () => {
       try {
-        const locked = await lockMatch(guildId, match.sessionId);
+        const locked = await lockMatch(guildId, sessionId);
         const lockedEmbed = buildMatchEmbed(locked, guildId);
         const disabledRow = buildBettingButtons(locked);
         await msg.edit({
