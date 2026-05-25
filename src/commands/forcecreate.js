@@ -1,15 +1,16 @@
 // src/commands/forcecreate.js
 const {
-  SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder,
+  SlashCommandBuilder, PermissionFlagsBits,
   ActionRowBuilder, ButtonBuilder, ButtonStyle,
 } = require('discord.js');
 const { getConfig } = require('../utils/config');
 const { createMatch, lockMatch } = require('../utils/matchManager');
 const { buildMatchEmbed, buildBettingButtons } = require('../utils/betUI');
 
-// Add role IDs here (comma-separated in env) OR hardcode them below
-// Example: ALLOWED_ROLE_IDS=123456789,987654321
-const ALLOWED_ROLE_IDS = (process.env.ALLOWED_ROLE_IDS || '').split(',').map(r => r.trim()).filter(Boolean);
+// Set ALLOWED_ROLE_IDS in Railway Variables (comma-separated role IDs)
+// e.g. ALLOWED_ROLE_IDS=123456789,987654321
+const ALLOWED_ROLE_IDS = (process.env.ALLOWED_ROLE_IDS || '')
+  .split(',').map(r => r.trim()).filter(Boolean);
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -27,10 +28,11 @@ module.exports = {
     const cfg = getConfig(guildId);
     const member = interaction.member;
 
+    const isServerOwner = interaction.guild.ownerId === interaction.user.id;
     const isAdmin = member.permissions.has(PermissionFlagsBits.Administrator);
-    const hasRole = ALLOWED_ROLE_IDS.length > 0 && ALLOWED_ROLE_IDS.some(id => member.roles.cache.has(id));
+    const hasAllowedRole = ALLOWED_ROLE_IDS.length > 0 && ALLOWED_ROLE_IDS.some(id => member.roles.cache.has(id));
 
-    if (!isAdmin && !hasRole) {
+    if (!isServerOwner && !isAdmin && !hasAllowedRole) {
       return interaction.reply({
         content: '❌ You don\'t have permission to open matches.',
         ephemeral: true,
@@ -56,7 +58,6 @@ module.exports = {
       components: [row],
     });
 
-    await match.betMessageId && true;
     match.betMessageId = msg.id;
     match.betChannelId = msg.channelId;
 
