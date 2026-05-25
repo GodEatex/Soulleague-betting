@@ -35,10 +35,11 @@ module.exports = {
     const hasRole = cfg.forcecreateRoleId && member.roles.cache.has(cfg.forcecreateRoleId);
 
     if (!isAdmin && !hasRole) {
-      return interaction.reply({
-        content: '❌ You need the designated role or Administrator permission to use this command.',
-        ephemeral: true,
-      });
+      const msg = cfg.forcecreateRoleId
+        ? '❌ You need the designated role or Administrator permission to use this command.'
+        : '❌ No betting role has been configured yet. An admin needs to run `/setrole` first.';
+      return interaction.reply({ content: msg, ephemeral: true });
+    }
     }
 
     const teamA = interaction.options.getString('team_a').trim();
