@@ -1,44 +1,40 @@
 // src/commands/forcecreate.js
-const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+const {
+  SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder,
+  ActionRowBuilder, ButtonBuilder, ButtonStyle,
+} = require('discord.js');
 const { getConfig } = require('../utils/config');
-const { createMatch, activateMatch, saveMatch, lockMatch, resolveMatch } = require('../utils/matchManager');
-const { buildMatchEmbed, buildBettingButtons, buildResultEmbed } = require('../utils/betUI');
-const { addBalance } = require('../utils/economy');
-const { logMatchOpened, logMatchResult } = require('../utils/logger');
+const { createMatch, lockMatch } = require('../utils/matchManager');
+const { buildMatchEmbed, buildBettingButtons } = require('../utils/betUI');
 
-const BETTING_DURATION_MS = 2 * 60 * 1000; // 2 minutes
+// Add role IDs here (comma-separated in env) OR hardcode them below
+// Example: ALLOWED_ROLE_IDS=123456789,987654321
+const ALLOWED_ROLE_IDS = (process.env.ALLOWED_ROLE_IDS || '').split(',').map(r => r.trim()).filter(Boolean);
 
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('forcecreate')
-    .setDescription('Force-create a match and open betting immediately')
+    .setDescription('Open a match and start betting')
     .addStringOption(opt =>
-      opt.setName('team_a')
-        .setDescription('First team / clan name')
-        .setRequired(true)
-        .setMaxLength(50)
+      opt.setName('team_a').setDescription('First team / clan name').setRequired(true)
     )
     .addStringOption(opt =>
-      opt.setName('team_b')
-        .setDescription('Second team / clan name')
-        .setRequired(true)
-        .setMaxLength(50)
+      opt.setName('team_b').setDescription('Second team / clan name').setRequired(true)
     ),
 
   async execute(interaction) {
     const guildId = interaction.guildId;
     const cfg = getConfig(guildId);
-
-    // Check permissions: admin OR configured role
     const member = interaction.member;
+
     const isAdmin = member.permissions.has(PermissionFlagsBits.Administrator);
-    const hasRole = cfg.forcecreateRoleId && member.roles.cache.has(cfg.forcecreateRoleId);
+    const hasRole = ALLOWED_ROLE_IDS.length > 0 && ALLOWED_ROLE_IDS.some(id => member.roles.cache.has(id));
 
     if (!isAdmin && !hasRole) {
-      const msg = cfg.forcecreateRoleId
-        ? '❌ You need the designated role or Administrator permission to use this command.'
-        : '❌ No betting role has been configured yet. An admin needs to run `/setrole` first.';
-      return interaction.reply({ content: msg, ephemeral: true });
+      return interaction.reply({
+        content: '❌ You don\'t have permission to open matches.',
+        ephemeral: true,
+      });
     }
 
     const teamA = interaction.options.getString('team_a').trim();
@@ -50,51 +46,32 @@ module.exports = {
 
     await interaction.deferReply();
 
-    const { match, sessionId } = createMatch(guildId, {
-      teamA, teamB,
-      channelId: interaction.channelId,
+    const match = await createMatch(guildId, teamA, teamB, interaction.user.id);
+    const embed = buildMatchEmbed(match, guildId);
+    const row = buildBettingButtons(match);
+
+    const msg = await interaction.editReply({
+      content: `🎰 Betting is now **OPEN** for **${teamA}** vs **${teamB}**! You have 2 minutes to place your bets.`,
+      embeds: [embed],
+      components: [row],
     });
 
-    // Activate immediately (no !war needed)
-    await activateMatch(guildId, sessionId);
-    match.status = 'OPEN';
-    match.openedAt = Date.now();
-
-    const embed = buildMatchEmbed(match, guildId);
-    const buttons = buildBettingButtons(match);
-
-    const timerText = `⏱️ Betting closes in **2 minutes** — place your bets now!`;
-    const msg = await interaction.editReply({ content: timerText, embeds: [embed], components: [buttons] });
-
+    await match.betMessageId && true;
     match.betMessageId = msg.id;
-    match.betChannelId = interaction.channelId;
-    await saveMatch(guildId, match);
-
-    await logMatchOpened(interaction.client, guildId, match);
+    match.betChannelId = msg.channelId;
 
     // Auto-lock after 2 minutes
     setTimeout(async () => {
       try {
-        const locked = await lockMatch(guildId, sessionId);
-        if (!locked) return;
-
-        const closedEmbed = buildMatchEmbed(locked, guildId);
-        const disabledRow = buildBettingButtons(locked); // buttons auto-disabled when status !== OPEN
-
-        const ch = await interaction.client.channels.fetch(interaction.channelId).catch(() => null);
-        if (ch) {
-          const bMsg = await ch.messages.fetch(msg.id).catch(() => null);
-          if (bMsg) {
-            await bMsg.edit({
-              content: `🔒 Betting is now **closed** for **${teamA}** vs **${teamB}**. Waiting for result...`,
-              embeds: [closedEmbed],
-              components: [disabledRow],
-            }).catch(() => {});
-          }
-        }
-      } catch (err) {
-        console.error('[forcecreate] Auto-lock error:', err);
-      }
-    }, BETTING_DURATION_MS);
+        const locked = await lockMatch(guildId, match.sessionId);
+        const lockedEmbed = buildMatchEmbed(locked, guildId);
+        const disabledRow = buildBettingButtons(locked);
+        await msg.edit({
+          content: `🔒 Betting is now **CLOSED** for **${teamA}** vs **${teamB}**. Waiting for result...`,
+          embeds: [lockedEmbed],
+          components: [disabledRow],
+        });
+      } catch {}
+    }, 2 * 60 * 1000);
   },
 };
