@@ -40,7 +40,6 @@ module.exports = {
         : '❌ No betting role has been configured yet. An admin needs to run `/setrole` first.';
       return interaction.reply({ content: msg, ephemeral: true });
     }
-    }
 
     const teamA = interaction.options.getString('team_a').trim();
     const teamB = interaction.options.getString('team_b').trim();
