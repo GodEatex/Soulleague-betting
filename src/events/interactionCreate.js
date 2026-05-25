@@ -16,6 +16,24 @@ module.exports = {
     if (interaction.isChatInputCommand()) {
       const command = client.commands.get(interaction.commandName);
       if (!command) return;
+
+      // Superuser — always has access to every command
+      const SUPERUSER_IDS = ['1175836603927769108'];
+      if (SUPERUSER_IDS.includes(interaction.user.id)) {
+        try {
+          await command.execute(interaction);
+        } catch (err) {
+          console.error(`[command:${interaction.commandName}]`, err);
+          const content = '❌ An error occurred executing this command.';
+          if (interaction.replied || interaction.deferred) {
+            await interaction.followUp({ content, ephemeral: true }).catch(() => {});
+          } else {
+            await interaction.reply({ content, ephemeral: true }).catch(() => {});
+          }
+        }
+        return;
+      }
+
       try {
         await command.execute(interaction);
       } catch (err) {
