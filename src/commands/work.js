@@ -82,7 +82,7 @@ module.exports = {
       .setTitle('💼 Work Shift')
       .setDescription('Solve this to earn **' + emoji + ' ' + reward + ' ' + name + '**:\n\n# ' + question + ' = ?')
       .setColor(0x5865f2)
-      .setFooter({ text: 'You have 30 seconds to answer.' });
+      .setFooter({ text: 'You have 15 seconds to answer.' });
 
     const row = new ActionRowBuilder().addComponents(
       options.map(function(opt, i) {
@@ -99,7 +99,7 @@ module.exports = {
     const msg = await interaction.fetchReply();
 
     try {
-      const btn = await msg.awaitMessageComponent({ filter: function(i) { return i.user.id === userId; }, time: 30000 });
+      const btn = await msg.awaitMessageComponent({ filter: function(i) { return i.user.id === userId; }, time: 15000 });
       const isCorrect = btn.customId.startsWith('work_correct');
 
       const updatedRow = new ActionRowBuilder().addComponents(

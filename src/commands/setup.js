@@ -166,7 +166,6 @@ module.exports = {
         `🔍 **Detection Channel** → <#${collected.resultDetectionChannelId}>\n` +
         `${currency.emoji} **Currency** → ${currency.name}\n\n` +
         '**Next steps:**\n' +
-        '• Use `/setrole @Role` to choose who can open matches\n' +
         '• Use `/forcecreate TeamA TeamB` to open a match and start betting\n' +
         '• The bot will auto-detect results and pay out from your detection channel'
       )
