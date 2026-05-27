@@ -2,9 +2,9 @@
 const {
   SlashCommandBuilder, PermissionFlagsBits, EmbedBuilder,
   ActionRowBuilder, ChannelSelectMenuBuilder, ChannelType,
-  ComponentType, ButtonBuilder, ButtonStyle,
+  ComponentType,
 } = require('discord.js');
-const { getConfig, setConfig } = require('../utils/config');
+const { setConfig } = require('../utils/config');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -89,7 +89,7 @@ module.exports = {
         '> - `Winner: ClanName`\n' +
         '> - `ClanName won` / `ClanName wins`\n' +
         '> - Score formats like `ClanA 3-1 ClanB`\n\n' +
-        '> As soon as it detects the winner, it **automatically pays out bets** and posts the result — no manual command needed.\n\n' +
+        '> As soon as it detects the winner, it **automatically pays out bets** and posts the result.\n\n' +
         '⚠️ This is usually a **private channel** where your war result bot or staff post the outcome.\n\n' +
         '_Select a text channel below:_'
       )
@@ -113,48 +113,7 @@ module.exports = {
       return interaction.editReply({ content: '⏱️ Timed out. Run `/setup` again.', embeds: [], components: [] });
     }
 
-    // ─── STEP 4: Currency ──────────────────────────────────────────────────
-    const currencyEmbed = new EmbedBuilder()
-      .setTitle('🛠️ Bot Setup — Almost Done!')
-      .setDescription(
-        '## 💰 Choose Your Currency\n' +
-        'Pick what the virtual currency in your server is called.\n\n' +
-        '> This is what members earn and spend when betting.\n' +
-        '> You can change this later with `/setcurrency`.\n\n' +
-        '_Pick one below:_'
-      )
-      .setColor(0x5865f2);
-
-    const currencyRow = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId('cur_coins').setLabel('🪙 Coins').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId('cur_gold').setLabel('💰 Gold').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId('cur_points').setLabel('⭐ Points').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId('cur_credits').setLabel('💎 Credits').setStyle(ButtonStyle.Secondary),
-    );
-
-    await interaction.editReply({ embeds: [currencyEmbed], components: [currencyRow] });
-
-    let curChoice;
-    try {
-      curChoice = await msg.awaitMessageComponent({ filter, componentType: ComponentType.Button, time: 60_000 });
-      await curChoice.deferUpdate();
-    } catch {
-      return interaction.editReply({ content: '⏱️ Timed out. Run `/setup` again.', embeds: [], components: [] });
-    }
-
-    const currencyMap = {
-      cur_coins:   { name: 'Coins',   emoji: '🪙' },
-      cur_gold:    { name: 'Gold',    emoji: '💰' },
-      cur_points:  { name: 'Points',  emoji: '⭐' },
-      cur_credits: { name: 'Credits', emoji: '💎' },
-    };
-    const currency = currencyMap[curChoice.customId] || { name: 'Coins', emoji: '🪙' };
-
-    await setConfig(guildId, {
-      ...collected,
-      currencyName: currency.name,
-      currencyEmoji: currency.emoji,
-    });
+    await setConfig(guildId, collected);
 
     // ─── Done ──────────────────────────────────────────────────────────────
     const doneEmbed = new EmbedBuilder()
@@ -163,8 +122,7 @@ module.exports = {
         'Setup is complete. Here\'s what was configured:\n\n' +
         `📜 **Logs Channel** → <#${collected.logsChannelId}>\n` +
         `🏆 **Result Channel** → <#${collected.resultChannelId}>\n` +
-        `🔍 **Detection Channel** → <#${collected.resultDetectionChannelId}>\n` +
-        `${currency.emoji} **Currency** → ${currency.name}\n\n` +
+        `🔍 **Detection Channel** → <#${collected.resultDetectionChannelId}>\n\n` +
         '**Next steps:**\n' +
         '• Use `/forcecreate TeamA TeamB` to open a match and start betting\n' +
         '• The bot will auto-detect results and pay out from your detection channel'
