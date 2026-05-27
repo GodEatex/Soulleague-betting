@@ -51,4 +51,11 @@ for (const file of fs.readdirSync(eventsPath).filter(f => f.endsWith('.js'))) {
 process.on('unhandledRejection', err => console.error('[unhandledRejection]', err));
 process.on('uncaughtException', err => console.error('[uncaughtException]', err));
 
-client.login(process.env.DISCORD_TOKEN);
+// Load all data from MongoDB before starting the bot
+const { loadAll } = require('./utils/storage');
+loadAll().then(() => {
+  client.login(process.env.DISCORD_TOKEN);
+}).catch(err => {
+  console.error('❌ Failed to connect to MongoDB:', err);
+  process.exit(1);
+});

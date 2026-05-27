@@ -1,45 +1,54 @@
 // src/utils/storage.js
-const fs = require('fs');
-const path = require('path');
+const { MongoClient } = require('mongodb');
 
-const DATA_DIR = path.join(__dirname, '../../data');
+const MONGO_URI = process.env.MONGO_URI;
+const DB_NAME = 'soulcasino';
+
+let client = null;
+let db = null;
 const cache = new Map();
-const writeLocks = new Map();
 
-function getFilePath(name) { return path.join(DATA_DIR, `${name}.json`); }
-
-function ensureDataDir() {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+async function connect() {
+  if (db) return db;
+  client = new MongoClient(MONGO_URI);
+  await client.connect();
+  db = client.db(DB_NAME);
+  console.log('✅ Connected to MongoDB Atlas');
+  return db;
 }
 
 function read(name) {
-  if (cache.has(name)) return cache.get(name);
-  ensureDataDir();
-  const filePath = getFilePath(name);
-  if (!fs.existsSync(filePath)) { cache.set(name, {}); return {}; }
-  try {
-    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-    cache.set(name, parsed);
-    return parsed;
-  } catch { cache.set(name, {}); return {}; }
+  // Return cached value if available, otherwise empty object
+  return cache.get(name) ?? {};
 }
 
 async function write(name, data) {
-  if (writeLocks.get(name)) await writeLocks.get(name);
-  let resolveLock;
-  const lock = new Promise(r => { resolveLock = r; });
-  writeLocks.set(name, lock);
+  cache.set(name, data);
   try {
-    ensureDataDir();
-    cache.set(name, data);
-    const filePath = getFilePath(name);
-    const tmpPath = filePath + '.tmp';
-    fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf8');
-    fs.renameSync(tmpPath, filePath);
-  } finally {
-    resolveLock();
-    writeLocks.delete(name);
+    const database = await connect();
+    const col = database.collection('storage');
+    await col.updateOne(
+      { _id: name },
+      { $set: { _id: name, data } },
+      { upsert: true }
+    );
+  } catch (err) {
+    console.error(`[storage] Failed to write "${name}":`, err);
   }
 }
 
-module.exports = { read, write };
+async function loadAll() {
+  try {
+    const database = await connect();
+    const col = database.collection('storage');
+    const docs = await col.find({}).toArray();
+    for (const doc of docs) {
+      cache.set(doc._id, doc.data);
+    }
+    console.log(`✅ Loaded ${docs.length} storage entries from MongoDB`);
+  } catch (err) {
+    console.error('[storage] Failed to load from MongoDB:', err);
+  }
+}
+
+module.exports = { read, write, loadAll };
