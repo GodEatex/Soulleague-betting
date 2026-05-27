@@ -14,7 +14,8 @@ function getMatchesKey(guildId) { return `matches_${guildId}`; }
 function getAllMatches(guildId) { return storage.read(getMatchesKey(guildId)); }
 async function saveAllMatches(guildId, matches) { await storage.write(getMatchesKey(guildId), matches); }
 
-function createMatch(guildId, { teamA, teamB, format = '5v5', isSandbox = false, channelId = null }) {
+// Now async — creates AND saves the match before returning
+async function createMatch(guildId, { teamA, teamB, format = '5v5', isSandbox = false, channelId = null }) {
   const sessionId = uuidv4();
   const match = {
     sessionId, guildId, channelId,
@@ -29,6 +30,7 @@ function createMatch(guildId, { teamA, teamB, format = '5v5', isSandbox = false,
   };
   const matches = getAllMatches(guildId);
   matches[sessionId] = match;
+  await saveAllMatches(guildId, matches); // save immediately so it's in cache + DB
   return { match, sessionId };
 }
 
@@ -124,12 +126,9 @@ async function cancelBet(guildId, sessionId, userId) {
   if (betIndex === -1) return { success: false, reason: 'You don\'t have a bet on this match.' };
 
   const bet = match.bets[betIndex];
-
-  // Check 30-second window
   const age = Date.now() - bet.placedAt;
   if (age > 30_000) return { success: false, reason: 'The 30-second cancellation window has passed.' };
 
-  // Remove bet and refund pool
   match.bets.splice(betIndex, 1);
   if (bet.team === 'A') match.poolA -= bet.amount;
   else match.poolB -= bet.amount;
@@ -138,7 +137,6 @@ async function cancelBet(guildId, sessionId, userId) {
   return { success: true, bet };
 }
 
-// Find an open match by both team names (for auto-detection)
 function findOpenMatchByTeams(guildId, teamA, teamB) {
   const matches = getAllMatches(guildId);
   const lower = (s) => s.toLowerCase().trim();
@@ -152,7 +150,6 @@ function findOpenMatchByTeams(guildId, teamA, teamB) {
   }) || null;
 }
 
-// Find open match where message content mentions both team names
 function findMatchFromContent(guildId, content) {
   const matches = getAllMatches(guildId);
   const lower = content.toLowerCase();

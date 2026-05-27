@@ -18,11 +18,11 @@ async function connect() {
 }
 
 function read(name) {
-  // Return cached value if available, otherwise empty object
   return cache.get(name) ?? {};
 }
 
 async function write(name, data) {
+  // Always update cache immediately so reads are instant
   cache.set(name, data);
   try {
     const database = await connect();

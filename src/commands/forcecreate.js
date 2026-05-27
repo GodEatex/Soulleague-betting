@@ -57,7 +57,7 @@ module.exports = {
 
     await interaction.deferReply();
 
-    const { match, sessionId } = createMatch(guildId, { teamA, teamB });
+    const { match, sessionId } = await createMatch(guildId, { teamA, teamB });
     const openMatch = await activateMatch(guildId, sessionId);
 
     const embed = buildMatchEmbed(openMatch, guildId);

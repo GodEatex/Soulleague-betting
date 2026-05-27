@@ -23,7 +23,7 @@ module.exports = {
     const [teamA, teamB] = FAKE_TEAMS[Math.floor(Math.random() * FAKE_TEAMS.length)];
     const delay = Math.floor(Math.random() * 11 + 10) * 1000;
 
-    const { match, sessionId } = createMatch(guildId, {
+    const { match, sessionId } = await createMatch(guildId, {
       teamA, teamB, isSandbox: true, channelId: interaction.channelId,
     });
     await activateMatch(guildId, sessionId);
