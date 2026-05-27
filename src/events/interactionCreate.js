@@ -1,7 +1,7 @@
 // src/events/interactionCreate.js
-const { getMatch, placeBet } = require('../utils/matchManager');
+const { getMatch, placeBet, cancelBet } = require('../utils/matchManager');
 const { deductBalance, addBalance, getBalance } = require('../utils/economy');
-const { buildMatchEmbed, buildBettingButtons, buildBetModal } = require('../utils/betUI');
+const { buildMatchEmbed, buildBettingButtons, buildBetModal, buildCancelBetButton } = require('../utils/betUI');
 const { getConfig } = require('../utils/config');
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 
@@ -17,7 +17,6 @@ module.exports = {
       const command = client.commands.get(interaction.commandName);
       if (!command) return;
 
-      // Superuser — always has access to every command
       const SUPERUSER_IDS = ['1175836603927769108'];
       if (SUPERUSER_IDS.includes(interaction.user.id)) {
         try {
@@ -52,37 +51,87 @@ module.exports = {
     if (interaction.isButton()) {
       const id = interaction.customId;
 
-      // ── Bet Buttons ─────────────────────────────────────────────────────────
-      if (!id.startsWith('bet_A_') && !id.startsWith('bet_B_')) return;
+      // ── Bet Buttons ──────────────────────────────────────────────────────
+      if (id.startsWith('bet_A_') || id.startsWith('bet_B_')) {
+        const parts = id.split('_');
+        if (parts.length < 3) return;
+        const team = parts[1];
+        const sessionId = parts.slice(2).join('_');
 
-      const parts = id.split('_');
-      if (parts.length < 3) return;
-      const team = parts[1];
-      const sessionId = parts.slice(2).join('_');
+        const cooldownKey = `${interaction.user.id}_${sessionId}`;
+        const lastPress = buttonCooldowns.get(cooldownKey) || 0;
+        if (Date.now() - lastPress < BUTTON_COOLDOWN_MS) {
+          await interaction.reply({ content: '⏳ Please wait before clicking again.', ephemeral: true });
+          return;
+        }
+        buttonCooldowns.set(cooldownKey, Date.now());
 
-      const cooldownKey = `${interaction.user.id}_${sessionId}`;
-      const lastPress = buttonCooldowns.get(cooldownKey) || 0;
-      if (Date.now() - lastPress < BUTTON_COOLDOWN_MS) {
-        await interaction.reply({ content: '⏳ Please wait before clicking again.', ephemeral: true });
+        const match = getMatch(interaction.guildId, sessionId);
+        if (!match) return interaction.reply({ content: '❌ Match not found.', ephemeral: true });
+        if (match.status !== 'OPEN') return interaction.reply({ content: '🔒 Betting is closed.', ephemeral: true });
+
+        const existing = match.bets.find(b => b.userId === interaction.user.id);
+        if (existing) {
+          return interaction.reply({
+            content: `⚠️ You already bet **${existing.amount}** on **${existing.team === 'A' ? match.teamA : match.teamB}**.`,
+            ephemeral: true,
+          });
+        }
+
+        const teamName = team === 'A' ? match.teamA : match.teamB;
+        const modal = buildBetModal(team, sessionId, teamName);
+        await interaction.showModal(modal);
         return;
       }
-      buttonCooldowns.set(cooldownKey, Date.now());
 
-      const match = getMatch(interaction.guildId, sessionId);
-      if (!match) return interaction.reply({ content: '❌ Match not found.', ephemeral: true });
-      if (match.status !== 'OPEN') return interaction.reply({ content: '🔒 Betting is closed.', ephemeral: true });
+      // ── Cancel Bet Button ────────────────────────────────────────────────
+      if (id.startsWith('cancel_bet_')) {
+        const sessionId = id.slice('cancel_bet_'.length);
+        const guildId = interaction.guildId;
+        const userId = interaction.user.id;
+        const cfg = getConfig(guildId);
 
-      const existing = match.bets.find(b => b.userId === interaction.user.id);
-      if (existing) {
-        return interaction.reply({
-          content: `⚠️ You already bet **${existing.amount}** on **${existing.team === 'A' ? match.teamA : match.teamB}**.`,
+        const result = await cancelBet(guildId, sessionId, userId);
+
+        if (!result.success) {
+          return interaction.reply({ content: `❌ ${result.reason}`, ephemeral: true });
+        }
+
+        // Refund the user
+        const match = getMatch(guildId, sessionId);
+        if (!match?.isSandbox) {
+          await addBalance(guildId, userId, result.bet.amount);
+        }
+
+        const newBal = match?.isSandbox ? '(sandbox)' : `${getBalance(guildId, userId).toLocaleString()} ${cfg.currencyEmoji}`;
+
+        await interaction.reply({
+          embeds: [
+            new EmbedBuilder()
+              .setTitle('↩️ Bet Cancelled')
+              .setDescription(
+                `Your bet of **${result.bet.amount.toLocaleString()} ${cfg.currencyEmoji}** has been refunded.\n` +
+                `New balance: **${newBal}**`
+              )
+              .setColor(0x888888),
+          ],
           ephemeral: true,
         });
+
+        // Update the live match embed
+        const updatedMatch = getMatch(guildId, sessionId);
+        if (updatedMatch?.betMessageId && updatedMatch?.betChannelId) {
+          try {
+            const ch = await interaction.client.channels.fetch(updatedMatch.betChannelId);
+            const betMsg = await ch.messages.fetch(updatedMatch.betMessageId);
+            const updatedEmbed = buildMatchEmbed(updatedMatch, guildId);
+            const buttons = buildBettingButtons(updatedMatch);
+            await betMsg.edit({ embeds: [updatedEmbed], components: [buttons] });
+          } catch {}
+        }
+        return;
       }
 
-      const teamName = team === 'A' ? match.teamA : match.teamB;
-      const modal = buildBetModal(team, sessionId, teamName);
-      await interaction.showModal(modal);
       return;
     }
 
@@ -140,11 +189,37 @@ module.exports = {
       const teamName = team === 'A' ? match.teamA : match.teamB;
       const newBal = match.isSandbox ? '(sandbox)' : `${getBalance(guildId, userId).toLocaleString()} ${cfg.currencyEmoji}`;
 
+      const cancelRow = buildCancelBetButton(sessionId);
+
       await interaction.editReply({
-        content: `✅ Bet placed!\n**${amount.toLocaleString()} ${cfg.currencyEmoji}** on **${teamName}**\nRemaining balance: ${newBal}`,
+        embeds: [
+          new EmbedBuilder()
+            .setTitle('✅ Bet Placed!')
+            .setDescription(
+              `**${amount.toLocaleString()} ${cfg.currencyEmoji}** on **${teamName}**\n` +
+              `Remaining balance: **${newBal}**\n\n` +
+              `⏱️ You have **30 seconds** to cancel this bet.`
+            )
+            .setColor(0x00cc66),
+        ],
+        components: [cancelRow],
       });
 
-      // Update embed live
+      // Disable the cancel button after 30 seconds
+      setTimeout(async () => {
+        try {
+          const disabledCancel = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`cancel_bet_expired_${sessionId}`)
+              .setLabel('❌ Cancel window closed')
+              .setStyle(ButtonStyle.Secondary)
+              .setDisabled(true),
+          );
+          await interaction.editReply({ components: [disabledCancel] });
+        } catch {}
+      }, 30_000);
+
+      // Update live match embed
       if (result.match.betMessageId && result.match.betChannelId) {
         try {
           const ch = await interaction.client.channels.fetch(result.match.betChannelId);

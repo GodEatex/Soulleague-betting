@@ -92,8 +92,6 @@ module.exports = {
     );
 
     await interaction.reply({ embeds: [embed], components: [row] });
-    cooldowns[guildId + '_' + userId] = Date.now();
-    await storage.write('work_cooldowns', cooldowns);
 
     const msg = await interaction.fetchReply();
 
@@ -114,6 +112,10 @@ module.exports = {
       );
 
       if (isCorrect) {
+        // Only apply cooldown on a correct answer
+        cooldowns[guildId + '_' + userId] = Date.now();
+        await storage.write('work_cooldowns', cooldowns);
+
         await addBalance(guildId, userId, reward);
         const newBal = getBalance(guildId, userId);
         await btn.update({

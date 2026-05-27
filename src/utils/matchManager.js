@@ -114,6 +114,30 @@ async function lockMatch(guildId, sessionId) {
   return match;
 }
 
+async function cancelBet(guildId, sessionId, userId) {
+  const matches = getAllMatches(guildId);
+  const match = matches[sessionId];
+  if (!match) return { success: false, reason: 'Match not found.' };
+  if (match.status !== STATUS.OPEN) return { success: false, reason: 'Betting is already closed — bets are locked in.' };
+
+  const betIndex = match.bets.findIndex(b => b.userId === userId);
+  if (betIndex === -1) return { success: false, reason: 'You don\'t have a bet on this match.' };
+
+  const bet = match.bets[betIndex];
+
+  // Check 30-second window
+  const age = Date.now() - bet.placedAt;
+  if (age > 30_000) return { success: false, reason: 'The 30-second cancellation window has passed.' };
+
+  // Remove bet and refund pool
+  match.bets.splice(betIndex, 1);
+  if (bet.team === 'A') match.poolA -= bet.amount;
+  else match.poolB -= bet.amount;
+
+  await saveAllMatches(guildId, matches);
+  return { success: true, bet };
+}
+
 // Find an open match by both team names (for auto-detection)
 function findOpenMatchByTeams(guildId, teamA, teamB) {
   const matches = getAllMatches(guildId);
@@ -153,7 +177,7 @@ function getStats(guildId) {
 module.exports = {
   STATUS, createMatch, saveMatch, getMatch,
   getActiveMatches, getLatestPendingMatch, activateMatch,
-  placeBet, resolveMatch, lockMatch,
+  placeBet, cancelBet, resolveMatch, lockMatch,
   findMatchFromContent, findOpenMatchByTeams, getStats,
   getAllMatches,
 };

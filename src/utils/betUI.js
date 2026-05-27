@@ -107,4 +107,14 @@ function buildResultEmbed(match, guildId) {
     .setTimestamp();
 }
 
-module.exports = { buildMatchEmbed, buildBettingButtons, buildBetModal, buildResultEmbed };
+// Builds a cancel button for the ephemeral bet confirmation message
+function buildCancelBetButton(sessionId) {
+  return new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`cancel_bet_${sessionId}`)
+      .setLabel('❌ Cancel my bet')
+      .setStyle(ButtonStyle.Secondary),
+  );
+}
+
+module.exports = { buildMatchEmbed, buildBettingButtons, buildBetModal, buildResultEmbed, buildCancelBetButton };
